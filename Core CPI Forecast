@@ -1,0 +1,123 @@
+if (!require("dplyr")) {install.packages("dplyr"); library('dplyr')}
+if (!require("forecast")) {install.packages("forecast"); library('forecast')}
+if (!require("pdfetch")) {install.packages("pdfetch"); library('pdfetch')}
+if (!require("lubridate")) {install.packages("lubridate"); library('lubridate')}
+if (!require("xts")) {install.packages("xts"); library('xts')}
+if (!require("urca")) {install.packages("urca"); library('urca')}
+if (!require("ggplot2")) {install.packages("ggplot2"); library('ggplot2')}
+if (!require("fredr")) {install.packages("fredr"); library('fredr')}
+if (!require("scales")) {install.packages("scales"); library('scales')}
+if (!require("purrr")) {install.packages("purrr"); library('purrr')}
+
+#-------- Prepare Data -------------#
+# Import data from FRED as a time series.
+# Set dates to be index
+# Create date sequence of forecasted values. 12 Months after last actual.
+# Determine differencing
+# Analyze summary statistics and charts
+#-----------------------------------#
+
+# Import Data
+CPI <-pdfetch_FRED('CPILFESL') %>% na.omit()
+
+# Set index
+dates <- index(CPI)
+
+# Display graphs of data, ACF, and PACF - indicate transformation needed
+ggtsdisplay(CPI)
+
+# Forecast Dates
+fc.dates <-seq(ceiling_date(tail(index(CPI),1)+1,"month"), length = 12, by ='1 month')-1
+
+# Differencing Determination (2nd Order)
+ndiffs(CPI)
+
+# Undifferenced data summary statistics
+CPI %>% ur.kpss() %>% summary() #Test statistics > 1pct critical value. Reject null hypothesis indicating data is not stationary
+
+# First order differenced data summary statistics
+CPI %>% diff() %>% ur.kpss() %>% summary() #Reject null hypothesis
+CPI %>% diff() %>% ggtsdisplay()
+
+Box.test(diff(CPI$CPILFESL, differences = 1),type='Ljung-Box')
+
+# Second Order Differenced data summary statistics
+CPI %>% diff(differences=2) %>% ur.kpss() %>% summary() # Accept Null. Data is stationary. Second order differencing required.
+
+CPI %>% diff(differences=2) %>% ggtsdisplay()
+
+Box.test(diff(CPI$CPILFESL, differences = 2),type='Ljung-Box')
+
+#---------------- Create model inputs ---------------------#
+# Differencing
+# Stepwise
+# Approximation
+# Seasonal
+#----------------------------------------------------------#
+d <- 2 # Differencing
+stepwise <- FALSE # Use stepwise model selection for speed
+approximation <- FALSE # Approximate model selection
+seasonal <- FALSE # Only use non-seasonal models
+
+#-------- Produce Model -------------#
+# Fit ARIMA model
+# Check autocorrelations and residuals for white noise
+# Unit tests
+# Assess model fit
+#------------------------------------#
+
+# ARIMA Model: <= 10 lags. pValue > .203 Arima(4,2,1) <- subject to change
+cpi.model <-auto.arima(CPI, d=d,stepwise = stepwise, approximation = approximation, seasonal = seasonal)
+
+# Autocorrelations in threshold limit and large p value indicating white noise residuals
+checkresiduals(cpi.model)
+
+# All within unit circle as they should be
+autoplot(cpi.model)
+
+# Model Fit
+act.Pred <-ggplot()+theme_light()+
+  geom_line(aes(x=index(CPI), y=CPI$CPILFESL, color='Actual'))+
+  geom_line(aes(x=index(CPI), y=fitted(cpi.model), color='Fitted'))+
+  scale_color_manual(labels = c(CPI$CPILFESL,fitted(cpi.model)), values=c('#003D73', '#5E9732'))+
+  labs(y='Index',x='Date',title='CPI: Actual vs Predicted',caption='ARIMA(4,2,1)')
+
+# Forecast CPI data. 12 periods
+cpi.forecast <-cpi.model %>% forecast(h=12)
+
+# Build Forecasted values time series
+cpi.forecast<-data.frame(CPILFESL = cpi.forecast$mean,Date= fc.dates)
+cpi.forecast <-xts(x=cpi.forecast$CPILFESL, order.by = cpi.forecast$Date)
+names(cpi.forecast) <-'CPILFESL'
+
+# Append Forecasted values to DataFrame
+CPI <-append(CPI,cpi.forecast, after=length(CPI))
+
+# Calculate YoY rates
+CPI <-data.frame((CPI$CPILFESL/lag(CPI$CPILFESL,12)-1)*100) %>% na.omit()
+CPI$CPILFESL <-round(CPI$CPILFESL,1)
+CPI$date <-as.Date(rownames(CPI))
+
+# Subset Actuals and Forecasted Values
+cpi.act <- subset(CPI, date < fc.dates[1])
+cpi.fcs <- subset(CPI, date >= fc.dates[1])
+
+# Plot Actuals with Forecast
+cpi.graph <-ggplot()+theme_light()+
+  geom_line(aes(x=cpi.act$date, y=cpi.act$CPILFESL, color='Actual'))+
+  geom_line(aes(x=cpi.fcs$date, y=cpi.fcs$CPILFESL, color='Forecast'))+
+  scale_color_manual(labels = c('Actual','Forecast'), values=c('#003D73', '#5E9732'))+
+  scale_x_date(date_breaks = '4 year',labels = date_format('%y'))+
+  labs(y='%',x='',title='Core CPI',subtitle = '12 month forecast',caption='Model: ARIMA(4,2,1)')+
+  theme(legend.position='top',legend.justification = 'center',panel.grid.major.x =element_blank(),panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_line(size=.1, color="grey"),
+        panel.grid.minor.y = element_blank(),
+        plot.title=element_text(face = 'bold', hjust=0),
+        axis.title = element_text(face='bold',size=12,vjust=-0.5),
+        legend.title=element_blank(),
+        axis.text = element_text(color='black',size=12),
+        plot.subtitle = element_text(size=11,hjust=0),
+        legend.text = element_text(size=12),
+        plot.caption = element_text(size=10),
+        title = element_text(size=12),
+        panel.border = element_rect(color='black', fill=NA, size = .5))
