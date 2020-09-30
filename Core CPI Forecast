@@ -8,6 +8,7 @@ if (!require("ggplot2")) {install.packages("ggplot2"); library('ggplot2')}
 if (!require("fredr")) {install.packages("fredr"); library('fredr')}
 if (!require("scales")) {install.packages("scales"); library('scales')}
 if (!require("purrr")) {install.packages("purrr"); library('purrr')}
+if (!require("broom")) {install.packages("broom"); library('broom')}
 
 #-------- Prepare Data -------------#
 # Import data from FRED as a time series.
@@ -68,6 +69,10 @@ seasonal <- FALSE # Only use non-seasonal models
 
 # ARIMA Model: <= 10 lags. pValue > .203 Arima(4,2,1) <- subject to change
 cpi.model <-auto.arima(CPI, d=d,stepwise = stepwise, approximation = approximation, seasonal = seasonal)
+
+tidy(cpi.model)
+augment(cpi.model)
+glance(cpi.model)
 
 # Autocorrelations in threshold limit and large p value indicating white noise residuals
 checkresiduals(cpi.model)
