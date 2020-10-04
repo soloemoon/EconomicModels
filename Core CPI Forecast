@@ -70,9 +70,16 @@ seasonal <- FALSE # Only use non-seasonal models
 # ARIMA Model: <= 10 lags. pValue > .203 Arima(4,2,1) <- subject to change
 cpi.model <-auto.arima(CPI, d=d,stepwise = stepwise, approximation = approximation, seasonal = seasonal)
 
+autoplot(cpi.model,which=1:3,nrow=3,ncol=1)
+
 tidy(cpi.model)
-augment(cpi.model)
 glance(cpi.model)
+
+# Assess Outliers - leverage and cooks distance
+cpi.model %>% augment() %>% arrange(desc(.hat)) %>% head()
+cpi.model %>% augment() %>% arrange(desc(.cooksd)) %>% head()
+
+autoplot(cpi.model,which=4:6,nrow=3,ncol=1)
 
 # Autocorrelations in threshold limit and large p value indicating white noise residuals
 checkresiduals(cpi.model)
